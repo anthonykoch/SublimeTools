@@ -40,7 +40,7 @@ def all_views():
 def get_views_by_ids(ids):
     """
     Returns a list of views whose ids match the ids passed
-    @param {list} ids
+    ids (list):
     """
 
     return [view for view in all_views() if view.id() in (ids if isinstance(ids, list) else [ids])]
@@ -49,8 +49,8 @@ def get_views_by_ids(ids):
 def get_views_by_file_names(file_names, basename=False):
     """
     Get views by the specified filenames
-    @param {str|list} file_names
-    @param {boolean} [basename] - Whether or not to match the basename
+    file_names (str|list):
+    basename (boolean, optional): Whether or not to match the basename
     """
     if not isinstance(file_names, list):
         file_names = [file_names]
@@ -75,7 +75,7 @@ def get_views_by_file_names(file_names, basename=False):
 def get_source_scope(view):
     """
     Returns the source scope of the page, such as source.python
-    @param {sublime.View} view
+    view (sublime.View)
     """
 
     return view.scope_name(0).split(' ')[0]
@@ -84,8 +84,8 @@ def get_source_scope(view):
 def nth(items, index):
     """
     Return an item from a list by index, or None if the index does not exist
-    @param {list} items
-    @param {int} index
+    items (list): The list to get the nth item from
+    index (int): The index of the item to get
     """
 
     if index < len(items):
@@ -110,8 +110,28 @@ def incremental_id_factory():
     return create_incremental_id
 
 
-def exec(command, listener, working_dir='', env={}, path='', shell=False):
-    print('working_dir:', working_dir)
+def exec_cmd(
+    command,
+    listener=None,
+    on_finish=None,
+    on_data=None,
+    working_dir='',
+    env={},
+    path='',
+    shell=False
+    ):
+    # print('working_dir:', working_dir)
+
+    if listener is None:
+        listener = ProcessListener()
+
+        if callable(on_finish):
+            listener.on('finish', on_finish)
+        elif callable(on_data):
+            listener.on('data', on_data)
+        else:
+            raise Exception('Either a process listener or on_finish/on_data callbacks must be passed')
+
 
     if working_dir != '':
         os.chdir(working_dir)
@@ -129,36 +149,35 @@ def exec(command, listener, working_dir='', env={}, path='', shell=False):
     return child
 
 
-def execjs(content, working_dir, on_finished=None, on_data=None):
+def execjs(content, **kwargs):
     """
-        Compile a file with the plugin and execute it.
-        The working_dir will be used as the base for `require`
+    Compile a file with the plugin and execute it.
+    The working_dir will be used as the base for `require`
     """
 
     cmd = ['node', '-e', content]
 
-    listener = ProcessListener()
-    listener.on('on_finished', on_finished)
-    listener.on('on_data', on_finished)
+    if not isinstance(kwargs.get('working_dir')):
+        raise Exception('working_dir is required')
 
-    return exec(cmd, listener, working_dir=working_dir)
+    return exec_cmd(cmd, **kwargs)
 
 
-def execjsfile(absfilename, working_dir, listener, args=[]):
+def execjsfile(absfilename, args=[], **kwargs):
     """
     Compile a file with the plugin and execute it.
     The working_dir will be used as the base for `require`
 
-    @param absfilename str - An absolute path to the file
-    @param working_dir str - The working directory for the script, is used for the
+    absfilename (str): An absolute path to the file
+    working_dir (str): The working directory for the script, is used for the
                              base of requires.
-    @param on_finished callable - Called when the process is finished
-    @param on_data callable - Called when the process receives data
+    on_finished (callable): Called when the process is finished
+    on_data (callable): Called when the process receives data
     """
 
     cmd = ['node', absfilename] + args
 
-    return exec(cmd, listener, working_dir=working_dir)
+    return exec_cmd(cmd, **kwargs)
 
 
 class EventEmitter(object):
@@ -206,17 +225,60 @@ class Timer(object):
 
 
 class ProcessListener(EventEmitter, Timer):
+    """
+    A listener for AsyncProcess, to be used in tangent with exec_cmd(), execjs(), and execjsfile().
+    The handlers for on
+
+    Example:
+
+    def handle_data(data, proc):
+        pass
+
+    def handle_finish(all_data, proc):
+        pass
+
+    listener = ProcessListener()
+    listener.on('data', handle_data)
+    listener.on('finish', handle_finish)
+    exec_cmd('which node', listener)
+
+    or
+
+    clas AsyncListener(ProcessListener):
+        def handle_data(data, proc):
+            print(data)
+
+        def handle_finish(proc):
+            print(self.data)
+
+    listener = ProcessListener()
+    exec_cmd('which node', listener)
+    """
 
     def __init__(self):
         super().__init__()
         self.start_time()
+        self.data = b''
+        self.finished = False
 
     def on_data(self, proc, data):
-        self.emit('data', proc, data)
+        self.emit('data', data, proc)
+        self.data += data
+
+        fn = getattr(self, 'handle_data', None)
+
+        if fn is not None and callable(fn):
+            fn(data, proc)
 
     def on_finished(self, proc):
-        self.emit('finish', proc)
+        self.emit('finish', self.data, proc)
         self.stop_time()
+        self.finished = True
+
+        fn = getattr(self, 'handle_finish', None)
+
+        if fn is not None and callable(fn):
+            fn(proc)
 
 
 class Settings(object):
