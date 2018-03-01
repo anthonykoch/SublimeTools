@@ -1,241 +1,318 @@
-# The MIT License (MIT)
-
-# Copyright (c) 2015 Joshua Holbrook
-
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-
-# The above copyright notice and this permission notice shall be included in
-# all copies or substantial portions of the Software.
-
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-# THE SOFTWARE.
-
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-"""
-pyee supplies an ``EventEmitter`` object similar to the ``EventEmitter``
-from Node.js. It supports both synchronous callbacks and asyncio coroutines.
-
-
-Example
--------
-
-::
-
-    In [1]: from pyee import EventEmitter
-
-    In [2]: ee = EventEmitter()
-
-    In [3]: @ee.on('event')
-       ...: def event_handler():
-       ...:     print('BANG BANG')
-       ...:
-
-    In [4]: ee.emit('event')
-    BANG BANG
-
-    In [5]:
 
 """
-
-try:
-    from asyncio import iscoroutine, ensure_future
-except ImportError:
-    iscoroutine = None
-    ensure_future = None
-
-from collections import defaultdict, OrderedDict
-
-__all__ = ['EventEmitter', 'PyeeException']
+pymitter
+Python port of the extended Node.js EventEmitter 2 approach providing
+namespaces, wildcards and TTL.
+"""
 
 
-class PyeeException(Exception):
-    """An exception internal to pyee."""
-    pass
+__author__     = "Marcel Rieger"
+__copyright__  = "Copyright 2014, Marcel Rieger"
+__credits__    = ["Marcel Rieger"]
+__license__    = "MIT"
+__maintainer__ = "Marcel Rieger"
+__status__     = "Development"
+__version__    = "0.2.3"
+__all__        = ["EventEmitter"]
+
+
+# python imports
+from time import time
 
 
 class EventEmitter(object):
-    """The EventEmitter class.
 
-    For interoperation with asyncio, one can specify the scheduler and
-    the event loop. The scheduler defaults to ``asyncio.ensure_future``,
-    and the loop defaults to ``None``. When used with the default scheduler,
-    this will schedule the coroutine onto asyncio's default loop.
+    __CBKEY  = "__callbacks"
+    __WCCHAR = "*"
 
-    This should also be compatible with recent versions of twisted by
-    setting ``scheduler=twisted.internet.defer.ensureDeferred``.
-
-    Most events are registered with EventEmitter via the ``on`` and ``once``
-    methods. However, pyee EventEmitters have two *special* events:
-
-    - ``new_listener``: Fires whenever a new listener is created. Listeners for
-      this event do not fire upon their own creation.
-
-    - ``error``: When emitted raises an Exception by default, behavior can be
-      overriden by attaching callback to the event.
-
-      For example::
-
-          @ee.on('error')
-          def onError(message):
-              logging.err(message)
-
-          ee.emit('error', Exception('something blew up'))
-
-      For synchronous callbacks, exceptions are **not** handled for you---
-      you must catch your own exceptions inside synchronous ``on`` handlers.
-      However, when wrapping **async** functions, errors will be intercepted
-      and emitted under the ``error`` event. **This behavior for async
-      functions is inconsistent with node.js**, which unlike this package has
-      no facilities for handling returned Promises from handlers.
-    """
-    def __init__(self, scheduler=ensure_future, loop=None):
-        self._events = defaultdict(OrderedDict)
-        self._schedule = scheduler
-        self._loop = loop
-
-    def on(self, event, f=None):
-        """Registers the function (or optionally an asyncio coroutine function)
-        ``f`` to the event name ``event``.
-
-        If ``f`` isn't provided, this method returns a function that
-        takes ``f`` as a callback; in other words, you can use this method
-        as a decorator, like so::
-
-            @ee.on('data')
-            def data_handler(data):
-                print(data)
-
-        As mentioned, this method can also take an asyncio coroutine function::
-
-           @ee.on('data')
-           async def data_handler(data)
-               await do_async_thing(data)
-
-
-        This will automatically schedule the coroutine using the configured
-        scheduling function (defaults to ``asyncio.ensure_future``) and the
-        configured event loop (defaults to ``asyncio.get_event_loop()``).
-
-        In both the decorated and undecorated forms, the event handler is
-        returned. The upshot of this is that you can call decorated handlers
-        directly, as well as use them in remove_listener calls.
+    def __init__(self, *args, **kwargs):
+        """ EventEmitter(wildcard=False, delimiter=".", new_listener=False,
+                         max_listeners=-1)
+        The EventEmitter class.
+        Please always use *kwargs* in the constructor.
+        - *wildcard*: When *True*, wildcards are used.
+        - *delimiter*: The delimiter to seperate event namespaces.
+        - *new_listener*: When *True*, the "new_listener" event is emitted every
+          time a new listener is registered with arguments *(func, event=None)*.
+        - *max_listeners*: Maximum number of listeners per event. Negativ values
+          mean infinity.
         """
+        # super(EventEmitter, self).__init__()
 
-        def _on(f):
-            self._add_event_handler(event, f, f)
-            return f
+        self.wildcard      = kwargs.get("wildcard", False)
+        self.__delimiter   = kwargs.get("delimiter", ".")
+        self.new_listener  = kwargs.get("new_listener", False)
+        self.max_listeners = kwargs.get("max_listeners", -1)
 
-        if f is None:
+        self.__tree = self.__new_branch()
+
+    @property
+    def delimiter(self):
+        """
+        *delimiter* getter.
+        """
+        return self.__delimiter
+
+    @classmethod
+    def __new_branch(cls):
+        """
+        Returns a new branch. Basically, a branch is just a dictionary with
+        a special item *__CBKEY* that holds registered functions. All other
+        items are used to build a tree structure.
+        """
+        return { cls.__CBKEY: [] }
+
+    def __find_branch(self, event):
+        """
+        Returns a branch of the tree stucture that matches *event*. Wildcards
+        are not applied.
+        """
+        parts = event.split(self.delimiter)
+
+        if self.__CBKEY in parts:
+            return None
+
+        branch = self.__tree
+        for p in parts:
+            if p not in branch:
+                return None
+            branch = branch[p]
+
+        return branch
+
+    @classmethod
+    def __remove_listener(cls, branch, func):
+        """
+        Removes a listener given by its function from a branch.
+        """
+        listeners = branch[cls.__CBKEY]
+
+        indexes = [i for i, l in enumerate(listeners) if l.func == func]
+        indexes.reverse()
+
+        for i in indexes:
+            listeners.pop(i)
+
+    def on(self, event, func=None, ttl=-1):
+        """
+        Registers a function to an event. When *func* is *None*, decorator
+        usage is assumed. *ttl* defines the times to listen. Negative values
+        mean infinity. Returns the function.
+        """
+        def _on(func):
+            if not hasattr(func, "__call__"):
+                return func
+
+            parts = event.split(self.delimiter)
+
+            if self.__CBKEY in parts:
+                return func
+
+            branch = self.__tree
+            for p in parts:
+                branch = branch.setdefault(p, self.__new_branch())
+
+            listeners = branch[self.__CBKEY]
+
+            if 0 <= self.max_listeners <= len(listeners):
+                return func
+
+            listener = Listener(func, event, ttl)
+            listeners.append(listener)
+
+            if self.new_listener:
+                self.emit("new_listener", func, event)
+
+            return func
+
+        if func is not None:
+            return _on(func)
+        else:
             return _on
-        else:
-            return _on(f)
 
-    def _add_event_handler(self, event, k, v):
-        # Fire 'new_listener' *before* adding the new listener!
-        self.emit('new_listener', event, k)
-
-        # Add the necessary function
-        # Note that k and v are the same for `on` handlers, but
-        # different for `once` handlers, where v is a wrapped version
-        # of k which removes itself before calling k
-        self._events[event][k] = v
-
-    def emit(self, event, *args, **kwargs):
-        """Emit ``event``, passing ``*args`` and ``**kwargs`` to each attached
-        function. Returns ``True`` if any functions are attached to ``event``;
-        otherwise returns ``False``.
-
-        Example::
-
-            ee.emit('data', '00101001')
-
-        Assuming ``data`` is an attached function, this will call
-        ``data('00101001')'``.
-
-        For coroutine event handlers, calling emit is non-blocking. In other
-        words, you do not have to await any results from emit, and the
-        coroutine is scheduled in a fire-and-forget fashion.
+    def once(self, *args, **kwargs):
         """
-        handled = False
-
-        for f in list(self._events[event].values()):
-            result = f(*args, **kwargs)
-
-            # If f was a coroutine function, we need to schedule it and
-            # handle potential errors
-            if iscoroutine and iscoroutine(result):
-                if self._loop:
-                    d = self._schedule(result, loop=self._loop)
-                else:
-                    d = self._schedule(result)
-
-                # scheduler gave us an asyncio Future
-                if hasattr(d, 'add_done_callback'):
-                    @d.add_done_callback
-                    def _callback(f):
-                        exc = f.exception()
-                        if exc:
-                            self.emit('error', exc)
-
-                # scheduler gave us a twisted Deferred
-                elif hasattr(d, 'addErrback'):
-                    @d.addErrback
-                    def _callback(exc):
-                        self.emit('error', exc)
-            handled = True
-
-        if not handled and event == 'error':
-            if args:
-                raise args[0]
-            else:
-                raise PyeeException("Uncaught, unspecified 'error' event.")
-
-        return handled
-
-    def once(self, event, f=None):
-        """The same as ``ee.on``, except that the listener is automatically
-        removed after being called.
+        Registers a function to an event with *ttl = 1*. See *on*. Returns the
+        function.
         """
-        def _wrapper(f):
-            def g(*args, **kwargs):
-                self.remove_listener(event, f)
-                # f may return a coroutine, so we need to return that
-                # result here so that emit can schedule it
-                return f(*args, **kwargs)
-
-            self._add_event_handler(event, f, g)
-            return f
-
-        if f is None:
-            return _wrapper
+        if len(args) == 3:
+            args[2] = 1
         else:
-            return _wrapper(f)
+            kwargs["ttl"] = 1
+        return self.on(*args, **kwargs)
 
-    def remove_listener(self, event, f):
-        """Removes the function ``f`` from ``event``."""
-        self._events[event].pop(f)
-
-    def remove_all_listeners(self, event=None):
-        """Remove all listeners attached to ``event``.
-        If ``event`` is ``None``, remove all listeners on all events.
+    def on_any(self, func=None):
         """
-        if event is not None:
-            self._events[event] = OrderedDict()
+        Registers a function that is called every time an event is emitted.
+        When *func* is *None*, decorator usage is assumed. Returns the function.
+        """
+        def _on_any(func):
+            if not hasattr(func, "__call__"):
+                return func
+
+            listeners = self.__tree[self.__CBKEY]
+
+            if 0 <= self.max_listeners <= len(listeners):
+                return func
+
+            listener = Listener(func, None, -1)
+            listeners.append(listener)
+
+            if self.new_listener:
+                self.emit("new_listener", func)
+
+            return func
+
+        if func is not None:
+            return _on_any(func)
         else:
-            self._events = defaultdict(OrderedDict)
+            return _on_any
+
+    def off(self, event, func=None):
+        """
+        Removes a function that is registered to an event. When *func* is
+        *None*, decorator usage is assumed. Returns the function.
+        """
+        def _off(func):
+            branch = self.__find_branch(event)
+            if branch is None:
+                return func
+
+            self.__remove_listener(branch, func)
+
+            return func
+
+        if func is not None:
+            return _off(func)
+        else:
+            return _off
+
+    def off_any(self, func=None):
+        """
+        Removes a function that was registered via *on_any*. When *func* is
+        *None*, decorator usage is assumed. Returns the function.
+        """
+        def _off_any(func):
+            self.__remove_listener(self.__tree, func)
+
+            return func
+
+        if func is not None:
+            return _off_any(func)
+        else:
+            return _off_any
+
+    def off_all(self):
+        """
+        Removes all registerd functions.
+        """
+        del self.__tree
+        self.__tree = self.__new_branch()
 
     def listeners(self, event):
-        """Returns a list of all listeners registered to the ``event``.
         """
-        return list(self._events[event].keys())
+        Returns all functions that are registered to an event. Wildcards are not
+        applied.
+        """
+        branch = self.__find_branch(event)
+        if branch is None:
+            return []
+
+        return [l.func for l in branch[self.__CBKEY]]
+
+    def listeners_any(self):
+        """
+        Returns all functions that were registered using *on_any*.
+        """
+        return [l.func for l in self.__tree[self.__CBKEY]]
+
+    def listeners_all(self):
+        """
+        Returns all registered functions.
+        """
+        listeners = self.__tree[self.__CBKEY][:]
+
+        branches = self.__tree.values()
+        for b in branches:
+            if not isinstance(b, dict):
+                continue
+
+            branches.extend(b.values())
+
+            listeners.extend(b[self.__CBKEY])
+
+        return [l.func for l in listeners]
+
+    def emit(self, event, *args, **kwargs):
+        """
+        Emits an event. All functions of events that match *event* are invoked
+        with *args* and *kwargs* in the exact order of their registration.
+        Wildcards might be applied.
+        """
+        parts = event.split(self.delimiter)
+
+        if self.__CBKEY in parts:
+            return
+
+        listeners = self.__tree[self.__CBKEY][:]
+
+        branches = [self.__tree]
+
+        for p in parts:
+            _branches = []
+            for branch in branches:
+                for k, b in branch.items():
+                    if k == self.__CBKEY:
+                        continue
+                    if k == p:
+                        _branches.append(b)
+                    elif self.wildcard:
+                        if p == self.__WCCHAR or k == self.__WCCHAR:
+                            _branches.append(b)
+            branches = _branches
+
+        for b in branches:
+            listeners.extend(b[self.__CBKEY])
+
+        listeners.sort(key=lambda l: l.time)
+
+        remove = [l for l in listeners if not l(*args, **kwargs)]
+
+        for l in remove:
+            self.off(l.event, func=l.func)
+
+
+class Listener(object):
+
+    def __init__(self, func, event, ttl):
+        """
+        The Listener class.
+        Listener instances are simple structs to handle functions and their ttl
+        values.
+        """
+        super(Listener, self).__init__()
+
+        self.func  = func
+        self.event = event
+        self.ttl   = ttl
+
+        self.time = time()
+
+    def __call__(self, *args, **kwargs):
+        """
+        Invokes the wrapped function. If the ttl value is non-negative, it is
+        decremented by 1. In this case, returns *False* if the ttl value
+        approached 0. Returns *True* otherwise.
+        """
+        self.func(*args, **kwargs)
+
+        if self.ttl > 0:
+            self.ttl -= 1
+            if self.ttl == 0:
+                return False
+
+        return True
+

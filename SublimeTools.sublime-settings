@@ -1,0 +1,7 @@
+{
+  "node_path": {
+    // "osx": "/path/to/node"
+  },
+  // Either "system", "nvm", or "nvm_current"
+  "prefer": "system"
+}

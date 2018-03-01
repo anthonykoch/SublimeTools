@@ -12,17 +12,6 @@ from collections import defaultdict
 from contextlib import contextmanager
 
 
-@contextmanager
-def ignore(*exceptions, origin="", print_ex=True):
-    try:
-        yield exceptions
-    except exceptions as exs:
-        if print_ex:
-            print('\n' + origin)
-            traceback.print_exc(limit=None, file=None, chain=True)
-            print()
-
-
 # https://stackoverflow.com/questions/2955412/python-destructuring-bind-dictionary-contents
 pluck = lambda dict, *args: (dict.get(arg) for arg in args)
 

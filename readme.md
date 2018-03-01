@@ -32,4 +32,10 @@ A bunch of random stuff.
 
 [cuid](https://github.com/necaris/cuid.py) is a package by [necaris](https://github.com/necaris), which is based on Eric Elliots cuid implementation.
 
-[EventEmitter](https://github.com/jfhbrook/pyee) is a package created by [jfhbrook](https://github.com/jfhbrook)
+[EventEmitter](https://github.com/riga/pymitter) is a package created by [riga](https://github.com/riga)
+
+
+### Todo
+
+Add npx path, npx version, and nvm default version to env.
+

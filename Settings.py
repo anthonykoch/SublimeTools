@@ -29,7 +29,7 @@ class Settings(object):
 
     def set(self, key, value):
         """ Set a value into the sublime.Settings object """
-        self.load_setting.set(key, value)
+        self.loaded_settings.set(key, value)
 
     def get(self, key, default=None):
         """ Get a value by key from the settings. Loads from default settings if key doesn't the exist. """

@@ -138,21 +138,24 @@ def exec_cmd(
 
         if callable(on_finish):
             listener.on('finish', on_finish)
-        elif callable(on_data):
-            listener.on('data', on_data)
-        else:
-            raise Exception('Either a process listener or on_finish/on_data callbacks must be passed')
 
+        if callable(on_data):
+            listener.on('data', on_data)
+
+        if not callable(on_finish) and not callable(on_data):
+            raise Exception('Either a process listener or on_finish/on_data callbacks must be passed')
 
     if working_dir != '':
         os.chdir(working_dir)
 
-    if shell:
+    if isinstance(command, str):
         cmd = None
         shell_cmd = command;
+        shell = True
     else:
         cmd = command
         shell_cmd = None
+        shell = False
 
     child = AsyncProcess(cmd, shell_cmd, env, listener, path=path, shell=shell)
     child.pid = child.proc.pid
