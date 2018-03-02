@@ -12,6 +12,27 @@ from collections import defaultdict
 from contextlib import contextmanager
 
 
+def get_settings_node_path(settings=[]):
+    """
+    Returns the node_path from a settings object, or None if it doesn't
+    exist.
+
+    Args:
+        settings (list): A list of settings to retrieve the node_path from
+    """
+
+    for setting in settings:
+        paths = setting.get('node_path', {})
+
+        if not isinstance(paths, dict):
+            continue
+
+        node_path = paths[sublime.platform()] if sublime.platform() in paths else None
+
+        if node_path is not None:
+            return node_path
+
+
 # https://stackoverflow.com/questions/2955412/python-destructuring-bind-dictionary-contents
 pluck = lambda dict, *args: (dict.get(arg) for arg in args)
 

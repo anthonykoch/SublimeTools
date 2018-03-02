@@ -20,10 +20,6 @@ A node like event emitter.
 
 Contains helpers for executing shell commands, based on sublimes own AsyncProcess class that it uses.
 
-### Node.py
-
-Contains helpers for retrieving the path to the system wide installed node or nvm installed nvm. Currently untested on windows (but it's todo).
-
 ### Utils.py
 
 A bunch of random stuff.
@@ -33,9 +29,4 @@ A bunch of random stuff.
 [cuid](https://github.com/necaris/cuid.py) is a package by [necaris](https://github.com/necaris), which is based on Eric Elliots cuid implementation.
 
 [EventEmitter](https://github.com/riga/pymitter) is a package created by [riga](https://github.com/riga)
-
-
-### Todo
-
-Add npx path, npx version, and nvm default version to env.
 
