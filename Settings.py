@@ -44,3 +44,24 @@ class Settings(object):
 
     def has(self, key):
         return self.loaded_settings.has(key)
+
+
+def get_platform_setting(key, settings=[]):
+    """
+    Returns the node_path from a settings object, or None if it doesn't
+    exist.
+
+    Args:
+        settings (list): A list of settings to retrieve the node_path from
+    """
+
+    for setting in settings:
+        paths = setting.get(key)
+
+        if not isinstance(paths, dict):
+            continue
+
+        node_path = paths[sublime.platform()] if sublime.platform() in paths else None
+
+        if node_path is not None:
+            return node_path

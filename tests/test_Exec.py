@@ -26,7 +26,7 @@ class TestExec(DeferrableTestCase):
 
         proc = exec_cmd('echo lmao', listener=listener)
 
-        yield 2000
+        yield 2500
 
         on_data.assert_called_with(proc, bytes('lmao{0}'.format(os.linesep), 'utf8'))
         on_finish.assert_called_with(proc, bytes('lmao{0}'.format(os.linesep), 'utf8'))
@@ -48,7 +48,7 @@ class TestExec(DeferrableTestCase):
 
         proc = exec_cmd('echo lmao', listener=listener)
 
-        yield 2000
+        yield 2500
 
         on_data.assert_called_with(proc, bytes('lmao{0}'.format(os.linesep), 'utf8'))
         on_finish.assert_called_with(proc, bytes('lmao{0}'.format(os.linesep), 'utf8'))
@@ -67,7 +67,7 @@ class TestExec(DeferrableTestCase):
 
         proc = exec_cmd('echo lmao', listener=listener)
 
-        yield 2000
+        yield 2500
 
         listener.handle_data.assert_called_with(proc, bytes('lmao{0}'.format(os.linesep), 'utf8'))
         listener.handle_finish.assert_called_with(proc)
@@ -84,7 +84,7 @@ class TestExec(DeferrableTestCase):
 
         proc = exec_cmd('echo lmao;', on_finish=on_finish, on_data=on_data)
 
-        yield 2000
+        yield 2500
 
         on_data.assert_called_with(proc, bytes('lmao{0}'.format(os.linesep), 'utf8'))
         on_finish.assert_called_with(proc, bytes('lmao{0}'.format(os.linesep), 'utf8'))
