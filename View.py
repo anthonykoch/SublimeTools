@@ -1,85 +1,272 @@
+import collections
+
 import sublime
 
 from sublime import Region
 
+from .Utils import pluck
 
-def get_loc_region(view, loc):
+
+def is_length(value):
+    return isinstance(value, int) and value >= 0
+
+
+class Position(object):
     """
-    Returns a region from a complex loc object spanning from loc start line/column
-    to loc end line/column. If any of the loc info is invalid, A region with -1 for both
-    points are returned.
-
-    Line and columns start at 0
-
-    Examples:
-        loc = {
-            'start': {
-                'column': 23,
-                'line': 40,
-            },
-            'end': {
-                'column': 42,
-                'line': 68,
-            },
-        }
-
-    Args:
-        view (sublime.View): The view to get the region from
-        loc (any): A complex loc object
-
-    Returns:
-        sublime.Region
+    Represents an AST position object.
+    Represents
     """
 
-    start_line = get_from_loc(loc, 'start', 'line')
-    start_column = get_from_loc(loc, 'start', 'column')
-    end_line = get_from_loc(loc, 'end', 'line')
-    end_column = get_from_loc(loc, 'end', 'column')
+    def __init__(self, start=None, end=None):
+        self.a = start if is_length(start) else None
 
-    # print(start_line, start_column, end_line, end_column)
+        if end is None:
+            self.b = start
+        else:
+            self.b = end if is_length(end) else None
 
-    if start_line is None or start_column is None or end_line is None or end_column is None:
+    def __getitem__(self, key):
+        """
+        Allow subscripting with start/end or 0, 1
+        """
+        if key == 'start' or key == 0:
+            return self.a
+        elif key == 'end' or key == 1:
+            return self.b
+
         return None
 
-    start_region = Region(view.text_point(start_line, start_column))
-    end_region = Region(view.text_point(end_line, end_column))
+    def __str__(self):
+        return '({}, {})'.format(self.a, self.b)
 
-    # end = view.line(view.text_point(line - 1, column - 1) ).end()
+    def __eq__(self, other):
+        """
+        Allows comparing with regions or other iterables
+        """
 
-    return Region(start_region.begin(), end_region.end())
+        if isinstance(other, Region):
+            return other.begin() == self.a and other.end() == self.b
+
+        if not isinstance(other, collections.Iterable) or len(other) < 2:
+            return False
+
+        return other[0] == self.a and other[1] == self.b
+
+    def __iter__(self):
+        yield self.a
+        yield self.b
+
+    def __len__(self):
+        return 2
+
+    def begin(self):
+        """ Returns the start of the position """
+        return self.a
+
+    def end(self):
+        """ Returns the end of the position """
+        return self.b
+
+    def has_begin(self):
+        """ Returns true if the start is an int and more than -1 """
+        return is_length(self.a)
+
+    def has_end(self):
+        """ Returns true if the end is an int and more than -1 """
+        return is_length(self.b)
+
+    def is_valid(self):
+        """ Returns true if the start and end are ints and more than -1 """
+        return self.has_begin() and self.has_end()
+
+    def to_region(self):
+        """ Converts the position to a region """
+        return Region(self.a, self.b)
+
+    def to_json(self):
+        return {
+            'start': self.a,
+            'end': self.b,
+        }
 
 
-def get_position_region(pos):
+class SimpleLocation(object):
     """
-    Returns a region from a position
-
-    Args:
-        view (sublime.View):
-        pos (any): The value to get the position from
-
-    Returns:
-        sublime.Region as reg with the reg.begin() being the pos['start']
-        and reg.end() being position['end']. If either start or end is
-        invalid, the value in the region will be -1.
+    Creates a simple location representing a line and column.
     """
 
-    if not isinstance(pos, dict):
-        return Region(-1, -1)
+    def __init__(self, line, column, **kwargs):
+        self.line = line if is_length(line) else None
+        self.column = column if is_length(column) else None
 
-    start = pos.get('start')
-    end = pos.get('end')
+    def __getitem__(self, key):
+        if key == 'line':
+            return self.line
+        elif key == 'column':
+            return self.column
 
-    if not isinstance(start, int) or start < 0:
-        start = -1
+        return None
 
-    if not isinstance(end, int) or end < 0:
-        end = -1
+    def __iter__(self):
+        """ Allow destructuring """
+        yield self.line
+        yield self.column
 
-    if start > end:
-        start = -1
-        end = -1
+    def __str__(self):
+        return '({}:{})'.format(self.line, self.column)
 
-    return Region(start, end)
+    def has_line(self):
+        """ Return true if the line is an int and more than -1 """
+        return is_length(self.line)
+
+    def has_column(self):
+        """ Return true if the column is an int and more than -1 """
+        return is_length(self.column)
+
+    def is_valid(self):
+        """ Return true if both the line and column are ints and more than -1 """
+        return self.has_line() and self.has_column()
+
+    def to_point(self, view):
+        """ Converts the line and column to a point in a view's buffer """
+
+        if self.is_valid():
+            return view.text_point(self.line, self.column)
+
+        return None
+
+    def to_region(self, view):
+        """
+        Returns:
+            None if the line or column are invalid or an empty region with
+        """
+        if self.is_valid():
+            return Region(self.to_point(view))
+
+        return None
+
+    def to_json(self):
+        return { 'line': self.line, 'column': self.column }
+
+
+class ComplexLocation(object):
+    """
+    Represents a complex location that has both starting line and columns, as well
+    as ending line and columns.
+
+    Attributes:
+        start (SimpleLocation): The starting location
+        end (SimpleLocation): The ending location
+    """
+
+    def __init__(self, start=None, end=None, **kwargs):
+        self.start = SimpleLocation(*pluck(start, 'line', 'column'))
+        self.end = SimpleLocation(*pluck(end, 'line', 'column'))
+
+    def to_region(self, view):
+        """
+        Returns a region spanning from the start line and column to the end line and colum, or
+        None if the start or end locations have invalid line or columns.
+
+        Args:
+            view (sublime.View): The view's buffer will be used in calculating the region's points
+
+        Returns:
+            sublime.Region or None if the start or end location are invalid
+        """
+
+        if not self.start.is_valid() or not self.end.is_valid():
+            return None
+
+        start_point = self.start.to_point(view)
+        end_point = self.end.to_point(view)
+
+        return Region(start_point, end_point)
+
+
+class RenderLocation(object):
+
+    """
+    A render location is either created from a position (start and end), complex
+    location, or both.
+
+    Examples:
+        simple_loc = { 'line': 0, 'column': 0 }
+        complex_loc = {
+            'start': { 'line': 0, 'column': 0 },
+            'end': { 'line': 0, 'column': 0 },
+        }
+        position = { 'start': 0, 'end': 0 }
+    """
+
+    BEGIN = 1 << 0
+    END = 1 << 1
+    START_LINE = 1 << 2
+    START_COLUMN = 1 << 3
+    END_LINE = 1 << 4
+    END_COLUMN = 1 << 5
+
+    def __init__(self, position=None, start=None, end=None, **kwargs):
+        pos_start, pos_end = pluck(position, 'start', 'end')
+
+        self.loc = ComplexLocation(start=start, end=end)
+        self.pos = Position(start=pos_start, end=pos_end)
+
+    def __str__(self):
+        return str(self.to_json())
+
+    def to_json(self):
+        return {
+            'start': self.loc.start.to_json(),
+            'end': self.loc.end.to_json(),
+        }
+
+    def render_ability(self):
+        """
+        Returns a mask of the the locations that are available.
+        """
+
+        mask = 0
+        mask |= RenderLocation.BEGIN        if self.pos.has_begin()        else 0
+        mask |= RenderLocation.END          if self.pos.has_end()          else 0
+        mask |= RenderLocation.START_LINE   if self.loc.start.has_line()   else 0
+        mask |= RenderLocation.START_COLUMN if self.loc.start.has_column() else 0
+        mask |= RenderLocation.END_LINE     if self.loc.end.has_line()     else 0
+        mask |= RenderLocation.END_COLUMN   if self.loc.end.has_column()   else 0
+
+        return mask
+
+    def start_line(self, view):
+        if self.loc.start.has_line():
+            return self.loc.start.line
+        elif self.pos.has_begin():
+            return view.rowcol(self.pos.begin())[0]
+
+        return None
+
+    def end_line(self, view):
+        if self.loc.end.has_line():
+            return self.loc.end.line
+        elif self.pos.has_end():
+            return view.rowcol(self.pos.end())[0]
+
+        return None
+
+    def start_point(self, view):
+        if self.pos.has_begin():
+            return self.pos.begin()
+        elif self.loc.start.is_valid():
+            return self.loc.start.to_point(view)
+
+        return None
+
+    def end_point(self, view):
+        if self.pos.has_end():
+            return self.pos.end()
+        elif self.loc.end.is_valid():
+            return self.loc.end.to_point(view)
+
+        return None
 
 
 def get_from_loc(loc, side, attr):
@@ -124,31 +311,6 @@ def get_from_loc(loc, side, attr):
                 return value
 
     return None
-
-
-def get_simple_loc_region(view, loc):
-    """
-    Returns a region from a simple. If either the line or column is invalid
-    Region(-1, -1) will be returned
-
-    Args:
-        view (sublime.View): The buffer to get the region from
-        loc (dict): A dict with at least a line key.
-
-    Returns:
-        sublime.Region
-    """
-
-    line = loc.get('line')
-    column = loc.get('column')
-
-    if not isinstance(line, int) or line <= 0:
-        return None
-
-    if not isinstance(column, int) or column <= 0:
-        return None
-
-    return sublime.Region(view.text_point(line, column))
 
 
 def all_views():

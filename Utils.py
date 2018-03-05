@@ -13,7 +13,8 @@ class Init(object):
 
 
 # https://stackoverflow.com/questions/2955412/python-destructuring-bind-dictionary-contents
-pluck = lambda dict, *args: (dict.get(arg) for arg in args)
+pluck = lambda d, *args: [(d.get(arg) if isinstance(d, dict) else None) for arg in args]
+
 
 def nth(items, index):
     """
