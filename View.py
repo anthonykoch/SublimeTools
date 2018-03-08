@@ -213,7 +213,33 @@ class RenderLocation(object):
         self.pos = Position(start=pos_start, end=pos_end)
 
     def __str__(self):
-        return str(self.to_json())
+        return 'RenderLocation({})'.format(str(self.to_json()))
+
+    def to_region(self, view):
+        """
+        Returns a region spanning from the starting line and column to the
+        end line and column, or the starting position and end position.
+
+        It will first attempt to retrieve the region points from the position,
+        but if either point start or end is invalid, it will attempt to retrieve
+        a point from the starting/ending line and columns.
+
+        The view is used to translate the line and column points when the position
+
+        Args:
+            view (sublime.View):
+
+        Returns:
+            sublime.Region
+        """
+
+        start = self.pos.begin() if self.pos.has_begin() else self.loc.start.to_point(view)
+        end = self.pos.end() if self.pos.has_end() else self.loc.end.to_point(view)
+
+        if start is None or end is None:
+            return None
+
+        return sublime.Region(start, end)
 
     def to_json(self):
         return {
@@ -292,7 +318,7 @@ def get_from_loc(loc, side, attr):
         attr (str): Either 'line' or 'column'
 
     Raises:
-        Exception is side is not "start" or "end"
+        Exception if side is not "start" or "end"
 
     Returns:
         None if the loc or side of the loc chosen is not a dict
